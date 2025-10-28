@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CloudFormation Template - VPC with EC2 Web Server (Lab App Deployment)
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC.
+
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for the public subnet.
+
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for the private subnet.
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type.
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair for SSH access.
+
+Resources:
+
+  # -------------------------------
+  # VPC
+  # -------------------------------
+  LabVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: LabVPC
+
+  # -------------------------------
+  # Internet Gateway
+  # -------------------------------
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: LabInternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref LabVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # -------------------------------
+  # Subnets
+  # -------------------------------
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      CidrBlock: !Ref PrivateSubnetCidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet
+
+  # -------------------------------
+  # Route Tables
+  # -------------------------------
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # -------------------------------
+  # Security Group
+  # -------------------------------
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and SSH access
+      VpcId: !Ref LabVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebServerSG
+
+  # -------------------------------
+  # EC2 Instance
+  # -------------------------------
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: ami-0c55b159cbfafe1f0  # Amazon Linux 2 (us-west-2 example)
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: LabWebServer
+      UserData: !Base64 |
+        #!/bin/bash
+        yum update -y
+        yum install -y httpd php php-mysqlnd wget unzip
+        systemctl enable httpd
+        systemctl start httpd
+
+        cd /var/www/html
+
+        # Download and extract the lab app
+        wget https://aws-tc-largeobjects.s3.amazonaws.com/CUR-TF-200-TEAC/v4.1/lab-app.zip -O /var/www/html/lab-app.zip
+        unzip -o lab-app.zip
+        rm -f lab-app.zip
+
+        # Adjust permissions
+        chown -R apache:apache /var/www/html
+        chmod -R 755 /var/www/html
+
+        # Restart Apache
+        systemctl restart httpd
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref LabVPC
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+
+  InstancePublicIP:
+    Description: Public IP of the EC2 Instance
+    Value: !GetAtt WebServerInstance.PublicIp
+
+  WebURL:
+    Description: Access your web server via HTTP
+    Value: !Sub "http://${WebServerInstance.PublicDnsName}"
