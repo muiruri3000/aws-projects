@@ -4,7 +4,7 @@ This project demonstrates how to build a secure, scalable, and automated AWS inf
 
 ## 📘 Project Overview
 The goal of this project was to provision a complete AWS environment capable of hosting a web application using CloudFormation templates.  
-It automates network setup, security configurations, and application deployment.
+It automates network setup, security configurations, and application deployment
 
 ---
 
