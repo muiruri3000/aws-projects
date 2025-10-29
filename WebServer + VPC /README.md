@@ -20,4 +20,4 @@ It automates network setup, security configurations, and application deployment
 
 ---
 Web Screenshot in ec2 Server
-![webserver image](images/finalOutput.png)
+![webserver image](images/finalOutput.png).
